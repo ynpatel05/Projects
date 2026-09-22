@@ -1,0 +1,401 @@
+---
+title: "Econometrics CW, time series, Q4,5"
+author: "Yashvi Niyati Patel"
+date: "2026-09-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Q4
+```{r}
+data <- read.csv("q4 (1).csv")
+```
+
+```{r}
+library(xts)
+library(urca)
+library(tseries)
+library(dplyr)
+library(forecast)
+```
+
+Convert the data into time series
+```{r}
+data <- data %>%
+  rename(price = US.house.price.index)
+```
+```{r}
+data <- xts(data$price,order.by = as.Date(data$date, format = "%d/%m/%Y"))
+```
+
+```{r}
+data <- read.csv("q4 (1).csv")
+data <- data %>% rename(h = US.house.price.index)
+data$date <- as.Date(data$date, format = "%d/%m/%Y")
+data_xts <- xts(x = data$h, order.by = data$date)
+colnames(data_xts) <- "h"
+```
+
+
+
+
+```{r}
+plot.xts(data_xts$h, type = "l", col = "green", main = "US house pricing index from 1991 to 2024", legend.loc = "bottom")
+```
+The plot above shows an overall long-term upward trend, reflecting overall growth in US house prices. From January 1991 to roughly January 2006, there is a steady increase, peaking at around 225, and then there is a sharp decline until 2012, likely due to the 2008 financial crisis. From 2012 onwards, there is a sharp increase in growth, with rapid acceleration after Jan 2020. The time series does not look stationary, as given the long term upward trajectory, there is a deterministic time trend. The graph does not indicate seasonality as there is no repeating yearly patterns. It is likely that there us a unit root as there seems to be no mean reversion due to the upwards drift and trend. It is likely an ADF test will confirm this. 
+
+We conduct an ADF test on the raw data, using type trend. We choose to use AIC as we are using slightly longer lag lengths. 
+```{r}
+summary(ur.df(data_xts$h, type = c("trend"), lags = 8, selectlags = c("AIC")))
+```
+Since we are checking for drift and trend we look at tau3. The test-statistic is -1.2123 which is larger than the 10% critical value of -3.13, and so we fail to reject H0 and conclude the series has at least one unit root. 
+
+To stabilise the variance and make the data suitable for forecasting, we transform h using logarithms and then differencing once.
+
+We log the data and plot it. 
+```{r}
+lh <- log(data_xts$h)
+dlh <- diff(lh,1)
+dlh <- dlh[-1]
+```
+We then plot the new series. 
+```{r}
+plot(dlh)
+```
+We can see there are gradual changes in the mean around 0, and so we beleive there may be a possibility for drift. We can also see some dynamics in the data, such as the upward and downward movements over multiple periods, so the data does not appear to be white noise but ARMA.
+
+We know conduct an ADF test on the first differenced data. We test for drift as well. 
+```{r}
+summary(ur.df(dlh, type = c("drift"), lags = 8, selectlags = c("AIC")))
+```
+The tau 2 statistic (-3.025) is less than the 5% critical value(-2.87), but more than the 1% value (-3.44), so we reject the null at the 5% level of a unit root. The phi1 comparisons show us that there is drift. The data is now stationary and had one unit root. So we conclude the series is non- stationary in levels, I(1), but after first differencing it is stationary with drift. 
+
+
+b)
+ARMA
+Define the out of sample period as 2022 onwards
+```{r}
+dlh_insample <- dlh['/2021']
+dlh_outofsample <- dlh['2022/']
+```
+
+Produce the ACF and PACF plots and their values.
+PACF plot
+```{r}
+Pacf_result <- Pacf(dlh_insample, lag.max = 12, plot = TRUE, na.action = na.contiguous, demean = TRUE)
+```
+We can see the auto correlations at lags 1,2,3,5 and 8 are statistically significant.
+```{r}
+acf_result <- Acf(dlh_insample, lag.max = 12, type = c("correlation"), plot = TRUE, na.action = na.contiguous, demean = TRUE)
+```
+The ACF plot shows gradual decay, especially if you increase the number of lags, indicating we are likely dealing with an AR() process. 
+
+Now we look at different ARMA candidates. For models we usually do not have lags past 3. Hence the best candidate models to test are: AR(1), AR(2), AR(3), ARMA(1,1), ARMA(2,1) and ARMA(3,1)
+
+```{r}
+arma10 <- arima(dlh_insample, order = c(1,0,0))
+arma20 <- arima(dlh_insample, order = c(2,0,0))
+arma30 <- arima(dlh_insample, order = c(3,0,0))
+arma11 <- arima(dlh_insample, order = c(1,0,1))
+arma21 <- arima(dlh_insample, order = c(2,0,1))
+arma31 <- arima(dlh_insample, order = c(3,0,1))
+
+ # For each candidate model save the AIC and BIC values 
+ 
+ AIC_arma10 <-AIC(arma10)
+ AIC_arma20 <-AIC(arma20)
+ AIC_arma30 <-AIC(arma30)
+ AIC_arma11 <-AIC(arma11)
+ AIC_arma21 <-AIC(arma21)
+ AIC_arma31 <-AIC(arma31)
+
+ AIC_values <- c(AIC_arma10,AIC_arma20,AIC_arma30, AIC_arma11, AIC_arma21, AIC_arma31)
+ 
+ BIC_arma10 <-BIC(arma10)
+ BIC_arma20 <-BIC(arma20)
+ BIC_arma30 <-BIC(arma30)
+ BIC_arma11 <-BIC(arma11)
+ BIC_arma21 <-BIC(arma21)
+ BIC_arma31 <-BIC(arma31)
+ 
+ BIC_values <- c(BIC_arma10,BIC_arma20,BIC_arma30, BIC_arma11, BIC_arma21, BIC_arma31)
+ 
+ 
+# 3. State and justify the choice of your “best” candidate models.  
+# Define candidate models 
+ candidates = c('ARMA(1,0)', 'ARMA(2,0)', 'ARMA(3,0)', 'ARMA(1,1)', 'ARMA(2,1)', 
+                'ARMA(3,1)')
+ 
+# Estimate models
+IC_table = data.frame(candidates, AIC_values, BIC_values) 
+IC_table
+
+# Code to nicely sort the models by minimal AIC/BIC values for comparison
+sorted_AIC = IC_table[order(AIC_values),]
+sort_AIC_models = sorted_AIC["candidates"]
+sorted_BIC = IC_table[order(BIC_values),]
+sort_BIC_models = sorted_BIC["candidates"]
+IC_table_sort = data.frame(sort_AIC_models, sort_BIC_models)
+colnames(IC_table_sort) = c("sorted AIC", "sorted BIC")
+rownames(IC_table_sort) <- 1:nrow(IC_table_sort)
+IC_table_sort
+```
+
+The table above presents the AIC and BIC values of all the candidate models, and has reordered them from lowest AIC/BIC to highest. We select 2 candidate models to perform further tests on. We select ARMA(1,1) and ARMA(2,1) as they have the lowest, and second lowest AIC and BIC values.
+
+we know want to asess if the residuals of the 'best' candidate models are homoscedastic, normally distributed and not autocorrelated. 
+
+A Breusch-Godfrey test helps us to test for autocorrelation of the residual series.
+```{r}
+library(lmtest)
+T=length(dlh_insample) 
+ arma11 <- arima(dlh_insample, order=c(1,0,1))  # Estimate model in in-sample data
+ residuals11 <- resid(arma11) #Save the residuals
+ bg_test11 <- bgtest(lm(as.vector(residuals11) ~ rep(1, T)),5) #Run the Breusch-Godfrey test by on residuals, a constant, and 5 lags of the residuals
+ print(bg_test11)
+ print(coeftest(bg_test11))
+```
+The null hypothesis is that there is no autocorrelation in the first 5 lags of the residuals.
+The statistic is LM test = 6.611 and the p-value  is 0.2512, so it is not smaller than the 5% critical value. We have very strong evidence that there is no autocorrelation in the residuals.
+ This means that we do not need any model 
+larger than ARMA(1,2). 
+The table below lists the individual t-tests for the 
+5 lags.
+
+```{r}
+T=length(dlh_insample) 
+ arma21 <- arima(dlh_insample, order=c(2,0,1))  # Estimate model in in-sample data
+ residuals21 <- resid(arma21) #Save the residuals
+ bg_test21 <- bgtest(lm(as.vector(residuals21) ~ rep(1, T)),5) #Run the Breusch-Godfrey test by on residuals, a constant, and 5 lags of the residuals
+ print(bg_test21)
+ print(coeftest(bg_test21))
+```
+The p-value is 0.5006, and LM test = 4.3473, not less than the 5% significance level, so do not reject the null.
+We conclude that there is no autocorrelation in the residuals of either candidate.
+
+Next we check for heteroscedasticity of residuals using an ARCH test.
+```{r}
+library(FinTS)
+ArchTest(residuals11, lag = 12,demean=FALSE) 
+ArchTest(residuals21, lag = 12,demean=FALSE) 
+```
+The p-values for both candidates are less than 0.05, and so we reject the null hypothesis that the error terms are homoscedastic, and in turn conclude that there is strong evidence of heteroscedasticity. This is as expected however, given that we are working with small sample sizes, and so we do not reject our models based on this. 
+
+We now test for normality of the residuals using a Jarque-Bera test. 
+```{r}
+jarque.bera.test(residuals11) 
+jarque.bera.test(residuals21) 
+```
+
+Since the p-values for both candidates are less than 5%, we reject the null hypothesis, meaning the residuals of ARMA(1,1) and ARMA(2,1) are not normally distributed. This is as expected, given our small sample size, and so we do not reject the models based on this test. 
+
+Overall we conclude that both ARMA(1,1) and ARMA(2,1) residuals are not autocorrelated, but they are homoscedastic and not normally distributed.
+
+
+To find the best model, we now forecast the series in the out of sample period, and then based on RMSE and MAE values we will decide which model is best to forecast house prices. 
+```{r}
+arma11 <- arima(dlh_insample, order = c(1,0,1)) 
+forecast_arma11 <- forecast(arma11, level=c(95), h = 25) 
+accuracy(forecast_arma11, dlh_outofsample) 
+plot(forecast_arma11)
+ arma21 <- arima(dlh_insample, order = c(2,0,1)) 
+forecast_arma21 <- forecast(arma21, level=c(95), h = 25) 
+accuracy(forecast_arma21, dlh_outofsample) 
+plot(forecast_arma21)
+```
+The model with the lowest RMSE and MAE value is the ARMA(1,1) model. If we were forecasting house prices, using the ARMA(1,1) model then an RMSE(MAE) of 0.007869428 (0.006504084) would imply a 7.869428 (6.504084) % forecast error, on average. 
+
+
+
+
+
+Q5
+
+```{r}
+library(xts)
+library(urca)
+library(tseries)
+library(dplyr)
+library(forecast)
+library(Hmisc)
+```
+
+```{r}
+data <- read.csv("Q5 (1).csv")
+```
+
+```{r}
+data$s <- log(data$s)
+data$us <- log(data$us)
+data$ca <- log(data$ca)
+```
+
+```{r}
+s <- ts(data[,2], start = c(1998,1), frequency = 12)
+us <- ts(data[,3], start = c(1998,1), frequency = 12)
+ca <- ts(data[,4], start = c(1998,1), frequency = 12)
+
+plot(s, type = "l", col = "blue", xlab = "Date", ylab = "Index and Exchange rate", main = "CA to US spot exhange rate, US & CA consumer price index", ylim = c(0, max(us)+1))
+lines(us, col = "red") 
+lines(ca, col = "green") 
+legend("right", legend = c("s", "us", "ca"), col = c("blue", "red", "green"), lty = 1)
+```
+From the plot we see both US and Canadian Consumer Price Index have steadily increased between 1998 and 2023, reflecting inflation. Based on the Theory of Purchasing Power Parity, which says that in the long run, exchange rates should adjust to equalise the purchasing power of different currencies, i.e. if the US price level rises faster than the Canadian price level, then the CAD should appreciate to maintain parity in real purchasing power, we would expect a long term relationship. Furthermore the exchange rate tends not to diverge without bound, suggesting it may be linked to the relative inflation between the countries. 
+
+We now apply the Engle-Granger method to test for cointegration between the three series.
+
+First we do the EG test and ECM using s- the CAD to US spot exchange rate, as the dependent variable. Because the ordering of the variables matters here, we will confirm the results by using other variables as the dependent variable after.
+```{r}
+coreg_s <- lm(s ~ us + ca)
+summary(coreg_s)
+coreg_us <- lm(us ~ s + ca)
+summary(coreg_us)
+coreg_ca <- lm(ca ~ s + us)
+summary(coreg_ca)
+```
+We see that for all the models, all regressors are highly significant.When we regress exchange rates on the price indexes, we see the R-squared of the regression is 45.27%, but since this regression is spurious, as it involves I(1) variables, all we take from this regression is the residuals. Our critical value from the lecture notes is -3.7429 (asymptotic 5% for the case of 3 variables). The test statistic -3.1951> -3.7429 so it is not significant and we do not reject the null hypothesis that the residuals from the cointegrating equation have a unit root. 
+This is unlike when we regress US price inex on spot exchange rates and Canadian price index, and regress Canadian price index on spot exchange rates and US price index, where r squared is 0.9979, for both.
+
+```{r}
+resid_s <- coreg_s$residuals
+plot(resid_s, type = "l")
+resid_us <- coreg_us$residuals
+plot(resid_us, type = "l")
+resid_ca <- coreg_ca$residuals
+plot(resid_ca, type = "l")
+```
+These look stationary. They are not trending and are mean-reverting often. To test for cointegration is to test these residuals for a unit root. We will use the test with drift, so that under the alternative we have a stationary AR with an intercept. 
+```{r}
+summary(ur.df(resid_s, type = c("drift"), lags = 8, selectlags = c("BIC"))) 
+summary(ur.df(resid_us, type = c("drift"), lags = 8, selectlags = c("BIC"))) 
+summary(ur.df(resid_ca, type = c("drift"), lags = 8, selectlags = c("BIC"))) 
+
+```
+Our critical value from the lecture notes is -3.7429 (asymptotic 5% for the case of 3 variables). The test statistic for regression on spot exchange rate is -3.1951> -3.7429 so it is not significant and we do not reject the null hypothesis that the residuals from the cointegrating equation have a unit root.  The test statistics for regression on US price index and Candadian price index is -4.7095 and -4.7262 respectively which is less than the critical value, and so for these two tests we do reject the null and say that the residuals are stationary ans so we have cointegration between the three variables.
+
+Next we estimate an Error Correction Model. According to the Granger Representation Theorem, we need
+both the result from the EG test, and an error correcting ECM, to verify that we have cointegration. 
+The form of the ECM in the regressor s case will be: 
+change in s = c + beta1resid_s(t-1) + beta2resid_us + beta3resid_ca + ut
+
+```{r}
+ds <- diff(s, 1) # make first difference
+dus <- diff(us, 1)
+dca <- diff(ca, 1)
+
+lag_resid_s<-Lag(resid_s, shift = 1)
+lag_resid_s <- lag_resid_s[-1]
+
+
+ecm_s <- lm(ds ~ lag_resid_s + dus + dca)
+summary(ecm_s)
+```
+ECM model: ds ~ lag_resid_s + dus _ dca
+
+We notice that the only significant regressor is dus. The r-squared is low at 0.08047, and so we conclude that this is a spurious regression as all the variables are I(0). 
+
+The short-run effects of changes in us and ca on s are -1.77 and 0.026 percentage points. If the 
+US CPI goes up by 1 percentage point(pp), the CAD to US spot exchange rate will go down on average by 0-1.77pp, so they move in the oposite direction in the short run. The relationship with the CAD CPI is positive in the short run, if dca goes up by 1pp, s will go up by -0.026pp. Due to Purchasing Power Parity, this is what we expect to see. When US inflation goes up, the US dollar tends to lose value, so you need fewer Canadian dollars to buy one USD, that’s why we see a strong negative effect of US inflation on the exchange rate. On the other hand, Canadian inflation doesn’t seem to have much of an effect. The impact is small and not statistically significant, which could be because other factors, like interest rates or oil prices, have a bigger influence on the Canadian dollar.
+
+
+To see if there are long-run effects we need to check whether ds error corrects. The long run relationship is the one we estimated in the cointegrating equation above. We found it to be :
+s = 3.00 -8.70us + 9.72ca(t)
+
+The residuals from this regression that are used in the ECM are 
+resid_s(t-1) = s(t-1) (repeat the equations, using t-1 instead)
+
+If the long run relationship is true in t − 1, the residuals will be zero. If there is deviation from the long run relationship, the residuals will be positive or negative. To see if the model is error correcting, we need to see if the coefficient of the resid_s variable, that is the speed of adjustment coefficient. We see that its value is 0.012141con, and p-value is 0.21612, and so it is insignificant, and we do not have error correction. We conclude that these three variables are not cointegrated here.
+
+Now we check if our results hold if we change the ordering.
+
+For dus ~ lag_resid_us + ds + dca :
+
+```{r}
+lag_resid_us<-Lag(resid_us, shift = 1)
+lag_resid_us <- lag_resid_us[-1]
+ecm_us <- lm(dus ~ lag_resid_us + ds + dca)
+summary(ecm_us)
+```
+We see that all predictors are significant and the R-squared is 0.4083. The short-run effects of changes in s and ca on us are -0.028 and 0.475 percentage points repectively. If the Canadian CPI goes up by 1 percentage point(pp), theUS CPI will go up on average by 0.475, so they move in the same direction in the short run. The relationship with the spot exchange rate is negative in the short run, if ds goes up by 1pp, us will go down by 0.028pp. This is as expected, as Canada and the US are major trading partners with closely linked economies, so inflation shocks in one country often spill over into the other, especially in the short run.
+
+Once again, to check if there are long-run effects, we need to check for error-correction. The long run relationship is the one estimated in the cointegrating equation above. We found it to be: 
+us(t) = 0.242983us - 0.046393s(t) + 1.137597ca(t)
+
+The residuals from this regression that are used in the ecm are: 
+resid_us(t-1) = us(t-1) and then essentually subtract the equation above
+
+If the long run relationship is true in t − 1, the residuals will be zero. If there is deviation from the long run relationship, the residuals will be positive or negative. To see if the model is error correcting, we need to see if the coefficient of the resid_us variable, that is the speed of adjustment coefficient. We see that its value is -0.0538459, and p-value is 0.002996, and so it is significant, and we have error correction. If the residuals in t-1 are positive, meaning us(t) is too high, or s(t) and ca(t) are too low, then the effect on the short-term change on will be negative and vice versa, showing that error corrects in the short term towards the
+long-term relationship.
+
+We conclude that the three variables are cointegrated and there is error correction. 
+
+
+For dca ~ lag_residca + ds + dus:
+
+```{r}
+lag_resid_ca<-Lag(resid_ca, shift = 1)
+lag_resid_ca <- lag_resid_ca[-1]
+ecm_ca <- lm(dca ~ lag_resid_ca + ds + dus)
+summary(ecm_ca)
+```
+We see that ds is not significant while dus is. The R-squared value is 0.3992. The short-run effects of changes in s and us on ca are -0.0044 and 0.7590 percentage points respectively. If the US CPI goes up by 1 percentage point(pp), the Candian CPI will go up on average by 0.7590pp, so they move in the same direction in the short run. The relationship with the spot exchange rate is negative in the short run, if ds goes up by 1pp, ca will go down by 0.0044pp. This is as expected, due to the strong trade ties and economic integration between the two countries, as well as their shared exposure to global price pressures (e.g., oil, supply chains).
+
+To see if there are long-run effects we need to check if ca(t) error corrects. The long run
+relationship is the one estimated in the cointegrating equation above,
+ca_t   = -0.202352+0.876991us_t  + 0.039998 s_t MAKE SURE CHANGE FROM SHWAN EQN
+
+The residuals from this regression that are used in the ECM are :
+
+bASICALYY SUBTRACT THEM.
+
+If the long run relationship is true in t − 1, the residuals will be zero.
+
+To see if the model is error correcting, we need to see if the coefficient of the resid_ca variable, that is the speed of adjustment coefficient. We see that its value is -0.1244934, and p-value is 1.34e-06, and so it is significant, and we have error correction. This means that whenever CA CPI at t-1 increases, the short-run Δcaₜ will be negative, pulling CA CPI back down towards the equilibrium path and so a negative residual produces a positive adjustment. 
+
+We conclude that the three variables are cointegrated and there is error correction. 
+
+c.
+The main test is the BG test for autocorrelation, as that will tell us if we need to add more lags to the ECM. We test with 4 lags:
+```{r}
+library(lmtest) 
+resid_ecm_us <- residuals(ecm_us)
+bgtest(lm(resid_ecm_us ~ rep(1:length(resid_ecm_us))),4) 
+```
+The p-value (3.599e-07) is less than 5% so the residuals are autocorrelated and we need to add more lags to the model. We create 3 lags for each variable. 
+
+```{r}
+library(Hmisc)
+dus_1 <- Lag(dus, shift = 1)
+dus_2 <- Lag(dus, shift = 2)
+dus_3 <- Lag(dus, shift = 3)
+ds_1 <- Lag(ds, shift = 1)
+ds_2 <- Lag(ds, shift = 2)
+ds_3 <- Lag(ds, shift = 3)
+dca_1 <- Lag(dca, shift = 1)
+dca_2 <- Lag(dca, shift = 2)
+dca_3 <- Lag(dca, shift = 3)
+ecm_us_model1<-lm(dus ~ lag_resid_us + ds + dca + dus_1 + dus_2 + ds_1)
+summary(ecm_us_model1)
+```
+After conducting the BG test, we find that all variables are significant, but the most significant variables are dus_3, ds_2, ds_3, dca_1, dca_2, dca_3, and so we remove them from the model.
+
+```{r}
+ecm_us_model2<-lm(dus ~ lag_resid_us + ds + dca + dus_1 + dus_2 + ds_1)
+summary(ecm_us_model2)
+```
+```{r}
+resid_ecm_us_model2 <- residuals(ecm_us_model2)
+bgtest(lm(resid_ecm_us_model2 ~ rep(1:length(resid_ecm_us_model2))),4)
+```
+
+Now we conduct the BG test again on our new regression and find a p-value of 0.7381, meaning we have strong evidence not to reject the null and conclude that the residuals are not autocorrelated. 
+
+
+COME BACK ON THE ENDING A BIT LATER. 
+The form of the ECM in the regressor s case will be: 
+change in s = c + beta1resid_s(t-1) + beta2resid_us + beta3resid_ca + ut
+
+So we must lag ,
